@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outlet – Beri Stamp</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/vendor/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="who"><small>Outlet Pameran</small><strong id="booth">…</strong></div>
+      <button class="btn secondary small" id="logout">Logout</button>
+    </div>
+
+    <!-- Step 1: scan -->
+    <div class="card" id="scanCard">
+      <h2>📷 Scan QR Pengunjung</h2>
+      <div id="reader"></div>
+      <button class="btn" id="startScan">Buka Kamera</button>
+      <button class="btn secondary hidden" id="stopScan">Tutup Kamera</button>
+
+      <label style="margin-top:20px">atau masukkan kode manual</label>
+      <form class="row" id="manualForm">
+        <input id="manualCode" placeholder="VST-XXXXXXXX" autocomplete="off" />
+        <button class="btn small" type="submit">Cari</button>
+      </form>
+      <div id="scanMsg" class="msg"></div>
+    </div>
+
+    <!-- Step 2: konfirmasi -->
+    <div class="card hidden" id="confirmCard">
+      <h2>Beri Stamp?</h2>
+      <div class="visitor-box">
+        <div class="muted">Pengunjung</div>
+        <div class="name" id="vName"></div>
+        <div class="muted" id="vUser"></div>
+        <div class="mini-grid" id="vGrid"></div>
+        <div><strong id="vCount"></strong></div>
+      </div>
+      <button class="btn ok" id="giveStamp">✅ Beri Stamp</button>
+      <button class="btn secondary" id="cancel">Batal</button>
+      <div id="confirmMsg" class="msg"></div>
+    </div>
+
+    <!-- Riwayat -->
+    <div class="card">
+      <h2>📋 Riwayat Stamp</h2>
+      <div class="muted">Total stamp diberikan</div>
+      <div class="stat" id="total">0</div>
+      <table>
+        <thead><tr><th>Waktu</th><th>Pengunjung</th></tr></thead>
+        <tbody id="history"><tr><td colspan="2" class="muted">Belum ada.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  let scanner = null;
+  let currentCode = null;
+
+  async function api(url, opts = {}) {
+    const r = await fetch(url, opts);
+    if (r.status === 401) { location.href = '/'; throw new Error('auth'); }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Terjadi kesalahan.');
+    return data;
+  }
+  function msg(el, text, type = 'error') { el.textContent = text; el.className = `msg show ${type}`; }
+  function clear(el) { el.className = 'msg'; }
+  function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+  // ---------- Kamera ----------
+  async function startScan() {
+    clear($('#scanMsg'));
+    try {
+      scanner = new Html5Qrcode('reader');
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (text) => { stopScan(); lookup(text); },
+        () => {}
+      );
+      $('#startScan').classList.add('hidden');
+      $('#stopScan').classList.remove('hidden');
+    } catch (err) {
+      scanner = null;
+      msg($('#scanMsg'), 'Tidak dapat membuka kamera. Pastikan izin kamera diberikan dan halaman dibuka via HTTPS atau localhost. Gunakan input manual sebagai alternatif.');
+    }
+  }
+  async function stopScan() {
+    if (scanner) { try { await scanner.stop(); scanner.clear(); } catch {} scanner = null; }
+    $('#startScan').classList.remove('hidden');
+    $('#stopScan').classList.add('hidden');
+  }
+  $('#startScan').onclick = startScan;
+  $('#stopScan').onclick = stopScan;
+
+  // ---------- Cari pengunjung ----------
+  async function lookup(code) {
+    code = String(code || '').trim().toUpperCase();
+    if (!code) return;
+    try {
+      const v = await api('/api/outlet/lookup?code=' + encodeURIComponent(code));
+      currentCode = code;
+      $('#vName').textContent = v.name;
+      $('#vUser').textContent = '@' + v.username;
+      renderMini(v.count, v.max);
+      clear($('#confirmMsg'));
+      $('#giveStamp').disabled = v.count >= v.max;
+      if (v.count >= v.max) msg($('#confirmMsg'), 'Kartu pengunjung ini sudah penuh.');
+      $('#scanCard').classList.add('hidden');
+      $('#confirmCard').classList.remove('hidden');
+    } catch (err) { msg($('#scanMsg'), err.message); }
+  }
+  function renderMini(count, max) {
+    $('#vGrid').innerHTML = Array.from({ length: max }, (_, i) => `<span class="${i < count ? 'on' : ''}"></span>`).join('');
+    $('#vCount').textContent = `${count} / ${max} stamp`;
+  }
+  $('#manualForm').onsubmit = (e) => { e.preventDefault(); lookup($('#manualCode').value); };
+
+  function backToScan() {
+    currentCode = null;
+    $('#manualCode').value = '';
+    $('#confirmCard').classList.add('hidden');
+    $('#scanCard').classList.remove('hidden');
+  }
+  $('#cancel').onclick = backToScan;
+
+  // ---------- Beri stamp ----------
+  $('#giveStamp').onclick = async () => {
+    $('#giveStamp').disabled = true;
+    try {
+      const r = await api('/api/outlet/stamp', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: currentCode }),
+      });
+      renderMini(r.count, r.max);
+      msg($('#confirmMsg'), `Stamp berhasil diberikan ke ${r.name}! (${r.count}/${r.max})`, 'success');
+      loadHistory();
+      setTimeout(backToScan, 1800);
+    } catch (err) {
+      msg($('#confirmMsg'), err.message);
+      $('#giveStamp').disabled = false;
+    }
+  };
+
+  // ---------- Riwayat ----------
+  async function loadHistory() {
+    const h = await api('/api/outlet/history');
+    $('#total').textContent = h.total;
+    $('#history').innerHTML = h.rows.length
+      ? h.rows.map(r => `<tr><td>${esc(r.created_at)}</td><td>${esc(r.visitor_name)} <span class="muted">@${esc(r.username)}</span></td></tr>`).join('')
+      : '<tr><td colspan="2" class="muted">Belum ada.</td></tr>';
+  }
+
+  $('#logout').onclick = async () => { await stopScan(); await fetch('/api/logout', { method: 'POST' }); location.href = '/'; };
+
+  (async () => {
+    const me = await api('/api/me');
+    $('#booth').textContent = me.booth_name || me.name;
+    loadHistory();
+  })();
+</script>
+</body>
+</html>

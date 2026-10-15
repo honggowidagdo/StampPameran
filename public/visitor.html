@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kartu Stamp Saya</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="who"><small>Pengunjung</small><strong id="name">…</strong></div>
+      <button class="btn secondary small" id="logout">Logout</button>
+    </div>
+
+    <div class="card">
+      <h2>🎟️ Kartu Stamp</h2>
+      <div class="progress">
+        <span class="muted">Stamp terkumpul</span>
+        <span><span class="count" id="count">0</span> <span class="muted">/ <span id="max">10</span></span></span>
+      </div>
+      <div class="bar"><div id="bar" style="width:0%"></div></div>
+      <div class="grid" id="grid"></div>
+      <div class="complete hidden" id="complete">🎉 Selamat! Kartu stamp Anda sudah penuh.</div>
+    </div>
+
+    <div class="card qr-box">
+      <h2>QR Code Saya</h2>
+      <p class="muted">Tunjukkan QR ini ke petugas outlet untuk mendapatkan stamp.</p>
+      <img id="qr" alt="QR Code" />
+      <div><span class="code" id="code">…</span></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  let lastCount = -1;
+
+  async function api(url, opts) {
+    const r = await fetch(url, opts);
+    if (r.status === 401 || r.status === 403) { location.href = '/'; throw new Error('auth'); }
+    return r.json();
+  }
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+  function renderCard(data) {
+    const { stamps, max } = data;
+    const count = stamps.length;
+    $('#count').textContent = count;
+    $('#max').textContent = max;
+    $('#bar').style.width = `${(count / max) * 100}%`;
+    $('#complete').classList.toggle('hidden', count < max);
+
+    const grid = $('#grid');
+    grid.innerHTML = '';
+    for (let i = 0; i < max; i++) {
+      const s = stamps[i];
+      const el = document.createElement('div');
+      if (s) {
+        el.className = 'slot filled' + (lastCount >= 0 && i >= lastCount ? ' new' : '');
+        el.title = `${s.booth_name} • ${s.created_at}`;
+        el.innerHTML = `<span class="star">★</span><span class="booth">${esc(s.booth_name)}</span>`;
+      } else {
+        el.className = 'slot';
+        el.textContent = i + 1;
+      }
+      grid.appendChild(el);
+    }
+    lastCount = count;
+  }
+
+  async function load(first = false) {
+    const data = await api('/api/visitor/card');
+    if (first) { $('#qr').src = data.qr; $('#code').textContent = data.code; }
+    if (data.stamps.length !== lastCount) renderCard(data);
+  }
+
+  $('#logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; };
+
+  (async () => {
+    const me = await api('/api/me');
+    $('#name').textContent = me.name;
+    await load(true);
+    // Cek stamp baru secara berkala agar langsung muncul setelah outlet memberi stamp
+    setInterval(() => load().catch(() => {}), 3000);
+  })();
+</script>
+</body>
+</html>

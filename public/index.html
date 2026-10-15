@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digital Stamp – Login</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="brand">
+      <h1>🎟️ Digital Stamp</h1>
+      <p>Kumpulkan 10 stamp dari outlet pameran</p>
+    </div>
+
+    <div class="card">
+      <h2>Masuk sebagai</h2>
+      <div class="roles">
+        <button class="role active" data-role="visitor" type="button">
+          <span class="icon">🧑</span><strong>Pengunjung</strong><small>Kumpulkan stamp</small>
+        </button>
+        <button class="role" data-role="outlet" type="button">
+          <span class="icon">🏪</span><strong>Outlet Pameran</strong><small>Berikan stamp</small>
+        </button>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="login" type="button">Login</button>
+        <button class="tab" data-tab="register" type="button">Daftar</button>
+      </div>
+
+      <!-- Login -->
+      <form id="loginForm">
+        <label>Username</label>
+        <input name="username" autocomplete="username" required />
+        <label>Password</label>
+        <input name="password" type="password" autocomplete="current-password" required />
+        <button class="btn" type="submit" id="loginBtn">Login sebagai Pengunjung</button>
+      </form>
+
+      <!-- Register -->
+      <form id="registerForm" class="hidden">
+        <label>Nama Lengkap</label>
+        <input name="name" required />
+        <div id="boothField" class="hidden">
+          <label>Nama Outlet / Booth</label>
+          <input name="booth_name" placeholder="cth. Kopi Nusantara – Booth A12" />
+        </div>
+        <label>Username</label>
+        <input name="username" autocomplete="username" required />
+        <label>Password <span class="muted">(min. 6 karakter)</span></label>
+        <input name="password" type="password" autocomplete="new-password" minlength="6" required />
+        <label>Ulangi Password</label>
+        <input name="password2" type="password" autocomplete="new-password" required />
+        <button class="btn" type="submit" id="registerBtn">Daftar sebagai Pengunjung</button>
+      </form>
+
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+<script>
+  let role = 'visitor';
+  let tab = 'login';
+  const $ = (s) => document.querySelector(s);
+  const label = () => role === 'visitor' ? 'Pengunjung' : 'Outlet Pameran';
+
+  function showMsg(text, type = 'error') {
+    const m = $('#msg');
+    m.textContent = text;
+    m.className = `msg show ${type}`;
+  }
+  function clearMsg() { $('#msg').className = 'msg'; }
+
+  function render() {
+    document.querySelectorAll('.role').forEach(b => b.classList.toggle('active', b.dataset.role === role));
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $('#loginForm').classList.toggle('hidden', tab !== 'login');
+    $('#registerForm').classList.toggle('hidden', tab !== 'register');
+    $('#boothField').classList.toggle('hidden', role !== 'outlet');
+    $('#registerForm [name=booth_name]').required = role === 'outlet';
+    $('#loginBtn').textContent = `Login sebagai ${label()}`;
+    $('#registerBtn').textContent = `Daftar sebagai ${label()}`;
+  }
+
+  document.querySelectorAll('.role').forEach(b => b.onclick = () => { role = b.dataset.role; clearMsg(); render(); });
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.tab; clearMsg(); render(); });
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Terjadi kesalahan.');
+    return data;
+  }
+
+  $('#loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const data = await post('/api/login', { role, username: f.get('username'), password: f.get('password') });
+      location.href = data.redirect;
+    } catch (err) { showMsg(err.message); }
+  };
+
+  $('#registerForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get('password') !== f.get('password2')) return showMsg('Password tidak sama.');
+    try {
+      const data = await post('/api/register', {
+        role, name: f.get('name'), booth_name: f.get('booth_name'),
+        username: f.get('username'), password: f.get('password'),
+      });
+      // Setelah daftar, kembali ke tab Login dengan username terisi
+      const username = f.get('username');
+      e.target.reset();
+      tab = 'login';
+      render();
+      $('#loginForm [name=username]').value = username;
+      $('#loginForm [name=password]').focus();
+      showMsg(data.message, 'success');
+    } catch (err) { showMsg(err.message); }
+  };
+
+  render();
+</script>
+</body>
+</html>
